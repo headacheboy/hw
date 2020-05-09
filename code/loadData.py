@@ -16,7 +16,7 @@ def load_data():
         dev_data.append([dic['question'], dic['title'] + " . " + dic['passage'], label_id[dic['answer']]])
 
     return train_data, dev_data
-	
+
 def load_data_aug():
     f_aug = open("../data/data_aug.jsonl", encoding='utf-8')
     label_id = {True: 1, False: 0}

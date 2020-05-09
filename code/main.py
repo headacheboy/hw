@@ -50,9 +50,13 @@ def get_features(samples, max_len, tknzr, label_list=None):
         sent1 = ls[0]
         sent2 = ls[1]
         label = ls[2]
+        '''
         tokens1 = tknzr.encode(sent1)[:max_len]
         tokens2 = tknzr.encode(sent2)[:max_len]
         input_id = tknzr.build_inputs_with_special_tokens(tokens1, tokens2)[:max_len]
+        '''
+        dic = tknzr.encode_plus(sent1, sent2, max_length=max_len, pad_to_max_length=True, return_token_type_ids=True, padding_side='right', return_tensors='pt', truncation_strategy="longest_first")
+        '''
         if input_id[-1] != tknzr.eos_token_id:
             # cut the sentence
             input_id[-1] = tknzr.eos_token_id
@@ -62,10 +66,15 @@ def get_features(samples, max_len, tknzr, label_list=None):
             input_id.append(0)
             input_masks_id.append(0)
             segment_id.append(0)
+        '''
+        #label_id.append(label)
         label_id.append(label)
-        input_ids.append(input_id)
-        segment_ids.append(segment_id)
-        input_masks_ids.append(input_masks_id)
+        input_ids.append(dic['input_ids'])
+        segment_ids.append(dic['token_type_ids'])
+        input_masks_ids.append(dic['attention_mask'])
+        #input_ids.append(input_id)
+        #segment_ids.append(segment_id)
+        #input_masks_ids.append(input_masks_id)
     return input_ids, input_masks_ids, segment_ids, label_id
 
 def create_dataloader(input_ids, mask_ids, segments_ids, label_ids, batch_size, train=True):
@@ -81,13 +90,13 @@ def create_dataloader(input_ids, mask_ids, segments_ids, label_ids, batch_size, 
 
 def main():
 
-    device_ids=[0,1,2]
+    device_ids=[0,1]
 
-    init_lr = 4e-5
+    init_lr = 1e-5
     max_epochs = 10
-    max_length = 512
-    batch_size = 3
-    gradient_accu = 8
+    max_length = 256
+    batch_size = 2
+    gradient_accu = 16
 
     num_label = 2
 
@@ -107,29 +116,28 @@ def main():
     train_input_ids, train_mask_ids, train_segment_ids, train_label_ids = get_features(train_data, max_length, tknzr)
     test_input_ids, test_mask_ids, test_segment_ids, test_label_ids = get_features(test_data, max_length, tknzr)
 
-    model = RobertaClassification(config, num_label=num_label).cuda(device_ids[0])
-    model = torch.nn.DataParallel(model, device_ids=device_ids)
-
-    all_input_ids = torch.Tensor(train_input_ids).long()
-    all_input_mask_ids = torch.Tensor(train_mask_ids).long()
-    all_segment_ids = torch.Tensor(train_segment_ids).long()
+    all_input_ids = torch.cat(train_input_ids, dim=0).long()
+    all_input_mask_ids = torch.cat(train_mask_ids, dim=0).long()
+    all_segment_ids = torch.cat(train_segment_ids, dim=0).long()
     all_label_ids = torch.Tensor(train_label_ids).long()
     train_dataloader = create_dataloader(all_input_ids, all_input_mask_ids, all_segment_ids, all_label_ids,
                                          batch_size=batch_size, train=True)
 
-    all_input_ids = torch.Tensor(test_input_ids).long()
-    all_input_mask_ids = torch.Tensor(test_mask_ids).long()
-    all_segment_ids = torch.Tensor(test_segment_ids).long()
+    all_input_ids = torch.cat(test_input_ids, dim=0).long()
+    all_input_mask_ids = torch.cat(test_mask_ids, dim=0).long()
+    all_segment_ids = torch.cat(test_segment_ids, dim=0).long()
     all_label_ids = torch.Tensor(test_label_ids).long()
     test_dataloader = create_dataloader(all_input_ids, all_input_mask_ids, all_segment_ids, all_label_ids,
                                         batch_size=batch_size, train=False)
 
-    optimizer = transformers.AdamW(model.parameters(), lr=init_lr)
+    model = RobertaClassification(config, num_label=num_label).cuda(device_ids[0])
+    model = torch.nn.DataParallel(model, device_ids=device_ids)
+
+
+    optimizer = transformers.AdamW(model.parameters(), lr=init_lr, eps=1e-8)
     optimizer.zero_grad()
-    scheduler = transformers.get_constant_schedule_with_warmup(optimizer, len(train_dataloader) // (batch_size * gradient_accu))
+    #scheduler = transformers.get_constant_schedule_with_warmup(optimizer, len(train_dataloader) // (batch_size * gradient_accu))
     #scheduler = transformers.get_linear_schedule_with_warmup(optimizer, len(train_dataloader) // (batch_size * gradient_accu), (len(train_dataloader) * max_epochs * 2) // (batch_size * gradient_accu), last_epoch=-1)
-    if not train_mode:
-        model.load_state_dict(torch.load("../model/model.ckpt"))
 
     global_step = 0
     for epoch in range(max_epochs):
@@ -148,8 +156,8 @@ def main():
                 if global_step % gradient_accu == 0:
                     optimizer.step()
                     optimizer.zero_grad()
-                    if epoch == 0:
-                        scheduler.step()
+                    #if epoch == 0:
+                        #scheduler.step()
             print(loss_avg / len(train_dataloader))
 
         model.eval()
@@ -183,9 +191,11 @@ def main():
             print("save...")
             torch.save(model.state_dict(), "../model/model.ckpt")
             print("finish")
+        '''
         if final_acc / num_test_sample <= prev_acc:
             for param_group in optimizer.param_groups:
                 param_group['lr'] = param_group['lr'] * 0.8
+                '''
         prev_acc = final_acc / num_test_sample
         tp = correct[1]
         tn = correct[0]
