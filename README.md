@@ -29,3 +29,5 @@ robert_large_mnli
 需要测试eval阶段的代码时，确保model/model.ckpt存在，然后将train_mode参数改为False，max_epochs改为1
 
 当前参数设置，在第4个epoch的acc达到最高，为0.8544
+
+每个epoch的loss: 0.92087 --- 0.52443 --- 0.29871 -- 0.17319
